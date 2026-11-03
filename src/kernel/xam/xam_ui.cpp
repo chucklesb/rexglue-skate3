@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/runtime.h>
 #include <rex/string.h>
@@ -443,13 +444,33 @@ u32 XamShowKeyboardUI_entry(u32 user_index, u32 flags, mapped_wstring default_te
   auto buffer_size = static_cast<size_t>(buffer_length) * 2;
 
   X_RESULT result;
-  if (REXCVAR_GET(headless)) {
+  // The Skate 3 unattended demo path has nobody to click the dialog (the
+  // new-profile "welcome new team" name prompt would hang the boot), so it
+  // accepts the default text like headless mode does.
+  const bool auto_accept = REXCVAR_GET(headless) || rex::cvar::Query<bool>("skate3_demo_path");
+  if (auto_accept) {
+    if (!REXCVAR_GET(headless)) {
+      REXKRNL_INFO("Skate 3 demo path: auto-accepting keyboard dialog with its default text");
+    }
     auto run = [default_text, buffer, buffer_length, buffer_size]() -> X_RESULT {
       // Redirect default_text back into the buffer.
       if (!default_text) {
         std::memset(buffer, 0, buffer_size);
       } else {
-        rex::string::copy_and_swap_truncating(buffer, default_text.value(), buffer_length);
+        // value() yields the guest's big-endian UTF-16 units unswapped, and
+        // copy_and_swap_truncating swaps while writing, so swap once first
+        // to host order. Copying them as-is wrote byte-reversed characters,
+        // which a name prompt rejects and re-asks forever. An empty default
+        // gets a placeholder for the same reason.
+        const auto raw = default_text.value();
+        std::u16string text(raw.begin(), raw.end());
+        for (char16_t& c : text) {
+          c = static_cast<char16_t>((c << 8) | (c >> 8));
+        }
+        if (text.empty()) {
+          text = u"Skate3";
+        }
+        rex::string::copy_and_swap_truncating(buffer, text, buffer_length);
       }
       return X_ERROR_SUCCESS;
     };
