@@ -447,8 +447,7 @@ u32 XamShowKeyboardUI_entry(u32 user_index, u32 flags, mapped_wstring default_te
   // The Skate 3 unattended demo path has nobody to click the dialog (the
   // new-profile "welcome new team" name prompt would hang the boot), so it
   // accepts the default text like headless mode does.
-  const bool auto_accept =
-      REXCVAR_GET(headless) || rex::cvar::Query<bool>("skate3_demo_path");
+  const bool auto_accept = REXCVAR_GET(headless) || rex::cvar::Query<bool>("skate3_demo_path");
   if (auto_accept) {
     if (!REXCVAR_GET(headless)) {
       REXKRNL_INFO("Skate 3 demo path: auto-accepting keyboard dialog with its default text");
