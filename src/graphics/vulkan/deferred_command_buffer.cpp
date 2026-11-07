@@ -369,6 +369,28 @@ void DeferredCommandBuffer::Execute(VkCommandBuffer command_buffer) {
         dfn.vkCmdWriteTimestamp(command_buffer, args.pipeline_stage, args.query_pool, args.query);
       } break;
 
+      case Command::kVkBeginDebugUtilsLabel: {
+        const ui::vulkan::VulkanInstance* instance =
+            command_processor_.GetVulkanDevice()->vulkan_instance();
+        if (instance->extensions().ext_EXT_debug_utils) {
+          auto& args = *reinterpret_cast<const ArgsVkDebugUtilsLabel*>(stream);
+          VkDebugUtilsLabelEXT label = {};
+          label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+          label.pLabelName = reinterpret_cast<const char*>(
+              reinterpret_cast<const uint8_t*>(stream) + sizeof(ArgsVkDebugUtilsLabel));
+          std::memcpy(label.color, args.color, sizeof(label.color));
+          instance->functions().vkCmdBeginDebugUtilsLabelEXT(command_buffer, &label);
+        }
+      } break;
+
+      case Command::kVkEndDebugUtilsLabel: {
+        const ui::vulkan::VulkanInstance* instance =
+            command_processor_.GetVulkanDevice()->vulkan_instance();
+        if (instance->extensions().ext_EXT_debug_utils) {
+          instance->functions().vkCmdEndDebugUtilsLabelEXT(command_buffer);
+        }
+      } break;
+
       default:
         assert_unhandled_case(header.command);
         break;

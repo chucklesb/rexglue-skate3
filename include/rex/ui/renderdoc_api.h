@@ -10,7 +10,9 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <cstdint>
 #include <memory>
+#include <string>
 
 #include <rex/platform/dynlib.h>
 
@@ -34,6 +36,16 @@ class RenderDocAPI {
 
   // Always present if this object exists.
   const RENDERDOC_API_1_0_0* api_1_0_0() const { return api_1_0_0_; }
+
+  // Capture helpers for callers that cannot include renderdoc_app.h.
+  // Captures the next presented frame (as RenderDoc's capture key does).
+  void TriggerCapture() const;
+  // Path prefix for capture files; RenderDoc appends "_frameN.rdc".
+  void SetCaptureFilePathTemplate(const char* path_template) const;
+  // Captures made so far in this process, and the file path of capture
+  // `index` (empty when out of range).
+  uint32_t NumCaptures() const;
+  std::string CapturePath(uint32_t index) const;
 
  private:
   explicit RenderDocAPI() = default;

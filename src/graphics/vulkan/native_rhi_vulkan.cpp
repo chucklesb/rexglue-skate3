@@ -38,6 +38,7 @@
 #include <utility>
 #include <vector>
 
+#include <rex/graphics/flags.h>
 #include <rex/graphics/vulkan/command_processor.h>
 #include <rex/logging.h>
 #include <rex/ui/vulkan/mem_alloc.h>
@@ -455,6 +456,11 @@ class NrCmdVulkan : public nrhi::Cmd {
 
   bool EnsureRenderPassOpen();
   void EndRenderPassIfOpen();
+  void CloseDebugLabel();
+
+  // A ProfileRegion debug label is open (closed at the next region or at
+  // EndFrame).
+  bool debug_label_open_ = false;
   bool EnsureDrawState();
   void LatchPendingClear(NrTextureVulkan* texture, const float* color4, float depth);
 
@@ -744,6 +750,9 @@ class NrDeviceVulkan : public nrhi::Device {
       (mem_dl ? g_buf_bytes_default_dl : g_buf_bytes_default_host)
           .fetch_add(desc.size, std::memory_order_relaxed);
     }
+    if (desc.name) {
+      vulkan_device_->SetObjectName(VK_OBJECT_TYPE_BUFFER, buffer, desc.name);
+    }
     auto* b = new NrBufferVulkan();
     b->buffer = buffer;
     b->allocation = allocation;
@@ -804,6 +813,9 @@ class NrDeviceVulkan : public nrhi::Device {
             "nrhi-vulkan: texture ({}x{} fmt {} samples {}) landed in HOST memory (flags {:#x})",
             desc.width, desc.height, uint32_t(desc.format), desc.sample_count, uint32_t(mem_flags));
       }
+    }
+    if (desc.name) {
+      vulkan_device_->SetObjectName(VK_OBJECT_TYPE_IMAGE, image, desc.name);
     }
     auto* t = new NrTextureVulkan();
     t->image = image;
@@ -1205,6 +1217,10 @@ class NrDeviceVulkan : public nrhi::Device {
     shader->stage = desc.stage;
     if (desc.entry_point != nullptr) {
       shader->entry_point = desc.entry_point;
+    }
+    if (desc.name != nullptr) {
+      const std::string name = std::string(desc.name) + ":" + shader->entry_point;
+      vulkan_device_->SetObjectName(VK_OBJECT_TYPE_SHADER_MODULE, module, name.c_str());
     }
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -2131,6 +2147,10 @@ class NrDeviceVulkan : public nrhi::Device {
                    int32_t(result), p.vs_entry, p.ps_entry);
       return VK_NULL_HANDLE;
     }
+    {
+      const std::string name = std::string("native pso ") + p.vs_entry + " / " + p.ps_entry;
+      vulkan_device_->SetObjectName(VK_OBJECT_TYPE_PIPELINE, pipeline, name.c_str());
+    }
     return pipeline;
   }
 
@@ -2202,6 +2222,7 @@ class NrDeviceVulkan : public nrhi::Device {
 // ---------------------------------------------------------------------------
 
 void NrCmdVulkan::ResetFrameState() {
+  debug_label_open_ = false;
   layout_ = nullptr;
   pipeline_ = nullptr;
   bound_pipeline_ = VK_NULL_HANDLE;
@@ -2276,6 +2297,7 @@ void NrCmdVulkan::EndFrame() {
   // Submit remaining queued barriers (including the app's release of the
   // guest output back to kGuestOutput, if it did not flush explicitly).
   device->cp()->SubmitBarriers(true);
+  CloseDebugLabel();
 }
 
 void NrCmdVulkan::EndRenderPassIfOpen() {
@@ -2774,11 +2796,60 @@ rex::perf::DrawBucket ProfileStageBucket(nrhi::ProfileStage stage) {
   return rex::perf::DrawBucket::kNativeScene;
 }
 
+const char* ProfileStageLabel(nrhi::ProfileStage stage) {
+  switch (stage) {
+    case nrhi::ProfileStage::kCommit:
+      return "native: commit";
+    case nrhi::ProfileStage::kShadow:
+      return "native: shadow atlas";
+    case nrhi::ProfileStage::kStaticSun:
+      return "native: static sun map";
+    case nrhi::ProfileStage::kMain:
+      return "native: main scene";
+    case nrhi::ProfileStage::kResolve:
+      return "native: resolve";
+    case nrhi::ProfileStage::kAmbientOcclusion:
+      return "native: ambient occlusion";
+    case nrhi::ProfileStage::kSsr:
+      return "native: ssr";
+    case nrhi::ProfileStage::kVolumetrics:
+      return "native: volumetrics";
+    case nrhi::ProfileStage::kBloom:
+      return "native: bloom + tonemap";
+    case nrhi::ProfileStage::k2d:
+      return "native: 2d";
+    case nrhi::ProfileStage::kTail:
+      return "native: tail";
+  }
+  return "native";
+}
+
 void NrCmdVulkan::ProfileRegion(nrhi::ProfileStage stage) {
   // Region semantics: beginning a bucket closes the active one, and the CP
   // closes the last bucket at frame end - so the kTail mark records the
   // present/submission tail as its own span.
   device->cp()->BeginGpuTimestampedRegion(ProfileStageBucket(stage));
+  // Debug labels with the same region semantics, for RenderDoc and
+  // validation messages. Labels must not straddle a render pass, so the
+  // open one is closed first (only while markers are on: RenderDoc
+  // attached, or --gpu_debug_markers).
+  if (IsGpuDebugMarkersEnabled()) {
+    EndRenderPassIfOpen();
+    DeferredCommandBuffer& cmd = device->cp()->deferred_command_buffer();
+    if (debug_label_open_) {
+      cmd.CmdVkEndDebugUtilsLabelEXT();
+    }
+    cmd.CmdVkBeginDebugUtilsLabelEXT(ProfileStageLabel(stage));
+    debug_label_open_ = true;
+  }
+}
+
+void NrCmdVulkan::CloseDebugLabel() {
+  if (debug_label_open_) {
+    EndRenderPassIfOpen();
+    device->cp()->deferred_command_buffer().CmdVkEndDebugUtilsLabelEXT();
+    debug_label_open_ = false;
+  }
 }
 
 }  // namespace

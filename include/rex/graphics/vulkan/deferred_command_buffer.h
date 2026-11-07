@@ -303,6 +303,21 @@ class DeferredCommandBuffer {
 
   void CmdVkEndRenderPass() { WriteCommand(Command::kVkEndRenderPass, 0); }
 
+  // VK_EXT_debug_utils command-buffer labels (RenderDoc / validation
+  // messages show them). The name is copied into the stream. Executed only
+  // when the instance has VK_EXT_debug_utils; otherwise skipped.
+  void CmdVkBeginDebugUtilsLabelEXT(const char* name, const float color[4] = nullptr) {
+    const size_t name_size = std::strlen(name) + 1;
+    uint8_t* args_ptr = reinterpret_cast<uint8_t*>(WriteCommand(
+        Command::kVkBeginDebugUtilsLabel, sizeof(ArgsVkDebugUtilsLabel) + name_size));
+    auto& args = *reinterpret_cast<ArgsVkDebugUtilsLabel*>(args_ptr);
+    for (int i = 0; i < 4; ++i) {
+      args.color[i] = color ? color[i] : 0.0f;
+    }
+    std::memcpy(args_ptr + sizeof(ArgsVkDebugUtilsLabel), name, name_size);
+  }
+  void CmdVkEndDebugUtilsLabelEXT() { WriteCommand(Command::kVkEndDebugUtilsLabel, 0); }
+
   // Dynamic rendering (VK_KHR_dynamic_rendering / Vulkan 1.3).
   void CmdVkBeginRendering(const VkRenderingInfo* rendering_info);
   void CmdVkEndRendering() { WriteCommand(Command::kVkEndRendering, 0); }
@@ -459,6 +474,8 @@ class DeferredCommandBuffer {
     kVkSetStencilWriteMask,
     kVkSetViewport,
     kVkWriteTimestamp,
+    kVkBeginDebugUtilsLabel,
+    kVkEndDebugUtilsLabel,
   };
 
   struct CommandHeader {
@@ -620,6 +637,11 @@ class DeferredCommandBuffer {
     VkQueryPool query_pool;
     uint32_t first_query;
     uint32_t query_count;
+  };
+
+  struct ArgsVkDebugUtilsLabel {
+    float color[4];
+    // Followed by the NUL-terminated label name.
   };
 
   struct ArgsVkWriteTimestamp {

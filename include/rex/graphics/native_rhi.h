@@ -251,6 +251,9 @@ struct BufferDesc {
   uint64_t size = 0;
   HeapKind heap = HeapKind::kDefault;
   BufferBindClass bind_class = BufferBindClass::kFull;
+  // Optional debug name (a string that outlives the call, e.g. a literal):
+  // shown by RenderDoc and in validation messages (Vulkan object names).
+  const char* name = nullptr;
 };
 
 struct TextureDesc {
@@ -266,6 +269,8 @@ struct TextureDesc {
   // Optimized clear value for render/depth targets (D3D12 fast clears).
   float clear_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
   float clear_depth = 1.0f;
+  // Optional debug name, as BufferDesc::name.
+  const char* name = nullptr;
 };
 
 struct TextureViewDesc {

@@ -9,8 +9,11 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <mutex>
+
 #include <rex/logging.h>
 #include <rex/ui/renderdoc_api.h>
+#include <rex/ui/renderdoc_capture.h>
 
 namespace rex {
 namespace ui {
@@ -49,6 +52,83 @@ std::unique_ptr<RenderDocAPI> RenderDocAPI::CreateIfConnected() {
 RenderDocAPI::~RenderDocAPI() {
   library_.Close();
 }
+
+#if REX_PLATFORM_MAC
+void RenderDocAPI::TriggerCapture() const {}
+void RenderDocAPI::SetCaptureFilePathTemplate(const char*) const {}
+uint32_t RenderDocAPI::NumCaptures() const {
+  return 0;
+}
+std::string RenderDocAPI::CapturePath(uint32_t) const {
+  return {};
+}
+#else
+void RenderDocAPI::TriggerCapture() const {
+  api_1_0_0_->TriggerCapture();
+}
+
+void RenderDocAPI::SetCaptureFilePathTemplate(const char* path_template) const {
+  // SetLogFilePathTemplate is the 1.0.0 name of SetCaptureFilePathTemplate.
+  api_1_0_0_->SetLogFilePathTemplate(path_template);
+}
+
+uint32_t RenderDocAPI::NumCaptures() const {
+  return api_1_0_0_->GetNumCaptures();
+}
+
+std::string RenderDocAPI::CapturePath(uint32_t index) const {
+  uint32_t length = 0;
+  if (!api_1_0_0_->GetCapture(index, nullptr, &length, nullptr) || length == 0) {
+    return {};
+  }
+  std::string path(length, '\0');
+  if (!api_1_0_0_->GetCapture(index, path.data(), &length, nullptr)) {
+    return {};
+  }
+  path.resize(path.find('\0') == std::string::npos ? path.size() : path.find('\0'));
+  return path;
+}
+#endif
+
+namespace renderdoc {
+namespace {
+
+const RenderDocAPI* Api() {
+  static std::once_flag once;
+  static std::unique_ptr<RenderDocAPI> api;
+  std::call_once(once, [] { api = RenderDocAPI::CreateIfConnected(); });
+  return api.get();
+}
+
+}  // namespace
+
+bool Attached() {
+  return Api() != nullptr;
+}
+
+bool TriggerCapture(const std::string& path_template) {
+  const RenderDocAPI* api = Api();
+  if (!api) {
+    return false;
+  }
+  if (!path_template.empty()) {
+    api->SetCaptureFilePathTemplate(path_template.c_str());
+  }
+  api->TriggerCapture();
+  return true;
+}
+
+uint32_t NumCaptures() {
+  const RenderDocAPI* api = Api();
+  return api ? api->NumCaptures() : 0;
+}
+
+std::string CapturePath(uint32_t index) {
+  const RenderDocAPI* api = Api();
+  return api ? api->CapturePath(index) : std::string();
+}
+
+}  // namespace renderdoc
 
 }  // namespace ui
 }  // namespace rex
