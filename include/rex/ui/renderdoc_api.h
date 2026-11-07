@@ -40,6 +40,9 @@ class RenderDocAPI {
   // Capture helpers for callers that cannot include renderdoc_app.h.
   // Captures the next presented frame (as RenderDoc's capture key does).
   void TriggerCapture() const;
+  // Explicit capture bracket on any device/window (wildcard NULL, NULL).
+  void StartFrameCapture() const;
+  bool EndFrameCapture() const;
   // Path prefix for capture files; RenderDoc appends "_frameN.rdc".
   void SetCaptureFilePathTemplate(const char* path_template) const;
   // Captures made so far in this process, and the file path of capture

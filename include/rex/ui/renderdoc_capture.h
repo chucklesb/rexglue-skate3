@@ -21,6 +21,15 @@ bool Attached();
 // keeps RenderDoc's current one. False when RenderDoc is not attached.
 bool TriggerCapture(const std::string& path_template);
 
+// Explicit capture of everything submitted between the two calls, on any
+// device and window (RenderDoc's wildcard). Unlike TriggerCapture this does
+// not depend on RenderDoc tracking the presenting window (it does not on
+// every window system, e.g. Wayland is capture-only). An empty template
+// keeps the current one. EndFrameCapture returns whether a capture was
+// written.
+bool StartFrameCapture(const std::string& path_template);
+bool EndFrameCapture();
+
 // Captures written so far in this process, and the path of capture `index`
 // (empty when out of range).
 uint32_t NumCaptures();

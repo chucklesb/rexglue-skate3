@@ -55,6 +55,10 @@ RenderDocAPI::~RenderDocAPI() {
 
 #if REX_PLATFORM_MAC
 void RenderDocAPI::TriggerCapture() const {}
+void RenderDocAPI::StartFrameCapture() const {}
+bool RenderDocAPI::EndFrameCapture() const {
+  return false;
+}
 void RenderDocAPI::SetCaptureFilePathTemplate(const char*) const {}
 uint32_t RenderDocAPI::NumCaptures() const {
   return 0;
@@ -65,6 +69,14 @@ std::string RenderDocAPI::CapturePath(uint32_t) const {
 #else
 void RenderDocAPI::TriggerCapture() const {
   api_1_0_0_->TriggerCapture();
+}
+
+void RenderDocAPI::StartFrameCapture() const {
+  api_1_0_0_->StartFrameCapture(nullptr, nullptr);
+}
+
+bool RenderDocAPI::EndFrameCapture() const {
+  return api_1_0_0_->EndFrameCapture(nullptr, nullptr) != 0;
 }
 
 void RenderDocAPI::SetCaptureFilePathTemplate(const char* path_template) const {
@@ -116,6 +128,23 @@ bool TriggerCapture(const std::string& path_template) {
   }
   api->TriggerCapture();
   return true;
+}
+
+bool StartFrameCapture(const std::string& path_template) {
+  const RenderDocAPI* api = Api();
+  if (!api) {
+    return false;
+  }
+  if (!path_template.empty()) {
+    api->SetCaptureFilePathTemplate(path_template.c_str());
+  }
+  api->StartFrameCapture();
+  return true;
+}
+
+bool EndFrameCapture() {
+  const RenderDocAPI* api = Api();
+  return api && api->EndFrameCapture();
 }
 
 uint32_t NumCaptures() {
