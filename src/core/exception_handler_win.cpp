@@ -153,6 +153,11 @@ void ExceptionHandler::Uninstall(Handler fn, void* data) {
   }
 }
 
+void ExceptionHandler::SetUnhandled(UnhandledHandler) {
+  // Unclaimed exceptions already continue down the SEH chain to the process's
+  // unhandled-exception filter (SetUnhandledExceptionFilter); nothing to do.
+}
+
 }  // namespace rex::arch
 
 #endif  // REX_PLATFORM_WIN32

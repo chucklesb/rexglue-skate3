@@ -529,6 +529,17 @@ class ExceptionHandler {
 
   // Uninstalls a previously-installed exception handler.
   static void Uninstall(Handler fn, void* data);
+
+  // POSIX only: called once for a fault that no installed handler claimed,
+  // with the raw signal arguments (int, siginfo_t*, ucontext_t*). It runs
+  // inside the signal handler, so it must be async-signal-safe. Afterwards
+  // the signal's original disposition is restored and the faulting
+  // instruction re-executes, taking that disposition (by default: terminate
+  // with a core dump) instead of faulting into this handler forever.
+  // On Windows unclaimed exceptions continue to the SEH chain and the
+  // process's unhandled-exception filter; use SetUnhandledExceptionFilter.
+  typedef void (*UnhandledHandler)(int signal_number, void* signal_info, void* signal_context);
+  static void SetUnhandled(UnhandledHandler fn);
 };
 
 }  // namespace rex::arch

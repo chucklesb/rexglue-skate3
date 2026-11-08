@@ -21,6 +21,7 @@
 
 #include <signal.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 
@@ -34,6 +35,7 @@
 namespace rex::arch {
 
 bool signal_handlers_installed_ = false;
+std::atomic<ExceptionHandler::UnhandledHandler> unhandled_handler_{nullptr};
 struct sigaction original_sigill_handler_;
 struct sigaction original_sigsegv_handler_;
 #if REX_PLATFORM_MAC
@@ -417,6 +419,38 @@ static void ExceptionHandlerCallback(int signal_number, siginfo_t* signal_info,
       return;
     }
   }
+
+  // No handler claimed the fault. Returning as is would re-execute the
+  // faulting instruction straight back into this handler, forever. Report it
+  // once, then restore the original disposition so the re-fault takes it.
+  static std::atomic<bool> reported{false};
+  ExceptionHandler::UnhandledHandler unhandled = unhandled_handler_.load(std::memory_order_acquire);
+  if (unhandled && !reported.exchange(true)) {
+    unhandled(signal_number, signal_info, signal_context);
+  }
+  const struct sigaction* original = nullptr;
+  switch (signal_number) {
+    case SIGILL:
+      original = &original_sigill_handler_;
+      break;
+    case SIGSEGV:
+      original = &original_sigsegv_handler_;
+      break;
+#if REX_PLATFORM_MAC
+    case SIGBUS:
+      original = &original_sigbus_handler_;
+      break;
+#endif
+    default:
+      break;
+  }
+  if (original) {
+    sigaction(signal_number, original, nullptr);
+  }
+}
+
+void ExceptionHandler::SetUnhandled(UnhandledHandler fn) {
+  unhandled_handler_.store(fn, std::memory_order_release);
 }
 
 void ExceptionHandler::Install(Handler fn, void* data) {
