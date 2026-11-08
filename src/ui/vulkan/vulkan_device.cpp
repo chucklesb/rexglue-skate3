@@ -20,6 +20,7 @@
 #include <rex/logging.h>
 #include <rex/platform.h>
 #include <rex/string.h>
+#include <rex/ui/renderdoc_capture.h>
 #include <rex/ui/vulkan/device.h>
 
 REXCVAR_DEFINE_BOOL(vulkan_require_fragment_stores_and_atomics, true, "UI/Vulkan",
@@ -868,10 +869,25 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
     }
   }
 
+  // RenderDoc's explicit capture begin/end submits on these queues from the
+  // calling thread: hold all of them (in a fixed order) so it can't race the
+  // submits on the GPU and presenter threads. See renderdoc_capture.h.
+  rex::ui::renderdoc::SetQueueGuard(
+      device.get(), [dev = device.get()](const std::function<void()>& fn) {
+        std::vector<Queue::Acquisition> held;
+        for (const QueueFamily& family : dev->queue_families_) {
+          for (const std::unique_ptr<Queue>& queue : family.queues) {
+            held.push_back(queue->Acquire());
+          }
+        }
+        fn();
+      });
+
   return device;
 }
 
 VulkanDevice::~VulkanDevice() {
+  rex::ui::renderdoc::ClearQueueGuard(this);
   if (device_) {
     vulkan_instance_->functions().vkDestroyDevice(device_, nullptr);
   }

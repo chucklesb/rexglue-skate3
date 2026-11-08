@@ -9,9 +9,23 @@
  */
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 namespace rex::ui::renderdoc {
+
+// Runs `fn` while the graphics backend holds every GPU queue it submits to.
+// StartFrameCapture/EndFrameCapture called from a thread that isn't
+// presenting make RenderDoc submit its own work (initial resource contents,
+// readbacks) on the app's queues. Vulkan queues need external
+// synchronization, so without the guard that races the app's submits on its
+// other threads: intermittent device loss, or a crash in the driver
+// (RTX 4070, RenderDoc 1.46). D3D12 queues are thread-safe and need no guard.
+// `owner` is the backend object that installs it; Clear only removes that
+// owner's guard.
+using QueueGuard = std::function<void(const std::function<void()>& fn)>;
+void SetQueueGuard(const void* owner, QueueGuard guard);
+void ClearQueueGuard(const void* owner);
 
 // RenderDoc is injected into this process (checked once, then cached).
 bool Attached();

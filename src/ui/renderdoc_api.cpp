@@ -112,7 +112,39 @@ const RenderDocAPI* Api() {
   return api.get();
 }
 
+std::mutex g_queue_guard_mutex;
+const void* g_queue_guard_owner = nullptr;
+QueueGuard g_queue_guard;
+
+// Runs fn under the backend's queue guard, if one is installed.
+void Guarded(const std::function<void()>& fn) {
+  QueueGuard guard;
+  {
+    std::lock_guard lock(g_queue_guard_mutex);
+    guard = g_queue_guard;
+  }
+  if (guard) {
+    guard(fn);
+  } else {
+    fn();
+  }
+}
+
 }  // namespace
+
+void SetQueueGuard(const void* owner, QueueGuard guard) {
+  std::lock_guard lock(g_queue_guard_mutex);
+  g_queue_guard_owner = owner;
+  g_queue_guard = std::move(guard);
+}
+
+void ClearQueueGuard(const void* owner) {
+  std::lock_guard lock(g_queue_guard_mutex);
+  if (g_queue_guard_owner == owner) {
+    g_queue_guard_owner = nullptr;
+    g_queue_guard = nullptr;
+  }
+}
 
 bool Attached() {
   return Api() != nullptr;
@@ -138,13 +170,18 @@ bool StartFrameCapture(const std::string& path_template) {
   if (!path_template.empty()) {
     api->SetCaptureFilePathTemplate(path_template.c_str());
   }
-  api->StartFrameCapture();
+  Guarded([api] { api->StartFrameCapture(); });
   return true;
 }
 
 bool EndFrameCapture() {
   const RenderDocAPI* api = Api();
-  return api && api->EndFrameCapture();
+  if (!api) {
+    return false;
+  }
+  bool written = false;
+  Guarded([api, &written] { written = api->EndFrameCapture(); });
+  return written;
 }
 
 uint32_t NumCaptures() {
