@@ -13,6 +13,8 @@
  *              role as a function dispatch table rather than a CPU emulator.
  */
 
+#include <cstdio>
+
 #include <rex/assert.h>
 #include <rex/dbg.h>
 #include <rex/logging.h>
@@ -34,9 +36,27 @@ FunctionDispatcher* GetBoundFunctionDispatcher() {
 
 }  // namespace
 
-static void InvalidFunctionTrap(PPCContext& ctx, uint8_t* /*base*/) {
-  REX_FATAL("Call to invalid or unregistered function at guest address 0x{:08X}",
-            ctx.last_indirect_target);
+static void InvalidFunctionTrap(PPCContext& ctx, uint8_t* base) {
+  // Caller context: lr is the return address of the failing bctrl; the saved
+  // LRs of the frames above it come from the back chain (*(r1), LR at -8).
+  char stack[160] = {};
+  int len = 0;
+  uint32_t sp = ctx.r1.u32;
+  for (int i = 0; i < 12 && base && sp >= 0x10000 && sp < 0xF0000000u; ++i) {
+    const uint32_t prev = rex::memory::load_and_swap<uint32_t>(base + sp);
+    if (prev <= sp || prev - sp > 0x10000) {
+      break;
+    }
+    const uint32_t lr = rex::memory::load_and_swap<uint32_t>(base + prev - 8);
+    len += std::snprintf(stack + len, sizeof(stack) - len, " %08X", lr);
+    if (len >= static_cast<int>(sizeof(stack)) - 10) {
+      break;
+    }
+    sp = prev;
+  }
+  REX_FATAL("Call to invalid or unregistered function at guest address 0x{:08X} "
+            "(lr={:08X} r3={:08X} stack:{})",
+            ctx.last_indirect_target, static_cast<uint32_t>(ctx.lr), ctx.r3.u32, stack);
 }
 
 PPCFunc* ResolveIndirectFunction(uint32_t guest_address) {
