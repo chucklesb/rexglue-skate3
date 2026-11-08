@@ -429,6 +429,42 @@ bool D3D12Provider::Initialize() {
     d3d12_info_queue->Release();
   }
 
+  // Without a debugger attached the debug layer's messages only go to
+  // OutputDebugString. With d3d12_debug, also log them (Windows 11's
+  // ID3D12InfoQueue1), as "D3D12 <severity> (debug layer, ID <n>): ...".
+  if (debug) {
+    ID3D12InfoQueue1* d3d12_info_queue1;
+    if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&d3d12_info_queue1)))) {
+      DWORD cookie = 0;
+      const D3D12MessageFunc log_message = [](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY
+                                                  severity, D3D12_MESSAGE_ID id,
+                                              LPCSTR description, void*) {
+        switch (severity) {
+          case D3D12_MESSAGE_SEVERITY_CORRUPTION:
+          case D3D12_MESSAGE_SEVERITY_ERROR:
+            REXLOG_ERROR("D3D12 {} (debug layer, ID {}): {}",
+                         severity == D3D12_MESSAGE_SEVERITY_ERROR ? "error" : "corruption",
+                         int(id), description ? description : "");
+            break;
+          case D3D12_MESSAGE_SEVERITY_WARNING:
+            REXLOG_WARN("D3D12 warning (debug layer, ID {}): {}", int(id),
+                        description ? description : "");
+            break;
+          default:
+            break;  // Info and messages are filtered out above.
+        }
+      };
+      if (FAILED(d3d12_info_queue1->RegisterMessageCallback(
+              log_message, D3D12_MESSAGE_CALLBACK_FLAG_NONE, nullptr, &cookie))) {
+        REXLOG_WARN("D3D12 debug layer: could not register the message callback");
+      }
+      d3d12_info_queue1->Release();
+    } else {
+      REXLOG_WARN("D3D12 debug layer: no ID3D12InfoQueue1 (Windows 11 needed); its messages "
+                  "only reach a debugger");
+    }
+  }
+
   // Create the command queue for graphics.
   D3D12_COMMAND_QUEUE_DESC queue_desc;
   queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
