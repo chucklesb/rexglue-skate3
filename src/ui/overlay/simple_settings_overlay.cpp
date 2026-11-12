@@ -39,9 +39,15 @@ namespace {
 constexpr std::array<int32_t, 3> kResolutionScales = {1, 2, 3};
 constexpr std::array<const char*, 3> kResolutionLabels = {"720p (1x)", "1440p (2x)", "2160p (3x)"};
 constexpr std::array<const char*, 2> kAspectRatioLabels = {"16:9", "21:9 (Experimental)"};
-constexpr std::array<double, 6> kFrameCapRates = {60.0, 90.0, 120.0, 144.0, 165.0, 240.0};
-constexpr std::array<const char*, 7> kFrameCapLabels = {"Unlimited", "60 FPS",  "90 FPS", "120 FPS",
-                                                        "144 FPS",   "165 FPS", "240 FPS"};
+// 30 FPS: a steady cap for handhelds (e.g. the Odin 2) that can't hold 60;
+// before it existed the config had to be edited by hand.
+constexpr std::array<double, 7> kFrameCapRates = {30.0,  60.0,  90.0, 120.0,
+                                                  144.0, 165.0, 240.0};
+constexpr std::array<const char*, 8> kFrameCapLabels = {"Unlimited", "30 FPS",  "60 FPS",
+                                                        "90 FPS",    "120 FPS", "144 FPS",
+                                                        "165 FPS",   "240 FPS"};
+static_assert(kFrameCapLabels.size() == kFrameCapRates.size() + 1,
+              "kFrameCapLabels = \"Unlimited\" + one label per kFrameCapRates entry");
 constexpr std::array<std::string_view, 7> kCoreSimpleSettingsCvars = {
     "resolution_scale", "draw_resolution_scale_x", "draw_resolution_scale_y", "fullscreen", "vsync",
     "mnk_mode",         "mnk_capture_mouse"};
