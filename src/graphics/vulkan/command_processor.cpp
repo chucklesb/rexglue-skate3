@@ -4133,6 +4133,24 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t 
       }
       return true;
     }
+    if (PassCensusDetailEnabled() && ShouldSuppressEmulatedDraws()) {
+      PassDetail d;
+      d.resolve = true;
+      const auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
+      d.pitch = surface_info.surface_pitch;
+      d.msaa = uint32_t(surface_info.msaa_samples);
+      const auto color_info = regs.Get<reg::RB_COLOR_INFO>();
+      d.color_base = color_info.color_base | (color_info.color_base_bit_11 << 11);
+      d.color_format = uint32_t(color_info.color_format);
+      const auto br = regs.Get<reg::PA_SC_WINDOW_SCISSOR_BR>();
+      d.scissor_br_x = br.br_x;
+      d.scissor_br_y = br.br_y;
+      d.dest_base = uint32_t(regs[XE_GPU_REG_RB_COPY_DEST_BASE]);
+      const auto dest_pitch = regs.Get<reg::RB_COPY_DEST_PITCH>();
+      d.dest_pitch = dest_pitch.copy_dest_pitch;
+      d.dest_height = dest_pitch.copy_dest_height;
+      NotePassDetail(d);
+    }
     uint32_t gpu_timestamp_start = BeginGpuTimestampedDraw(rex::perf::DrawBucket::kCopyResolve);
     bool copy_result = IssueCopy();
     EndGpuTimestampedDraw(gpu_timestamp_start);
@@ -4272,6 +4290,20 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t 
     }
     if (pass_census) {
       NotePassCensus(suppress_pitch, PassCensusKind::kExecutedUnderNative, index_count);
+    }
+    if (PassCensusDetailEnabled()) {
+      PassDetail d;
+      d.pitch = suppress_pitch;
+      d.msaa = uint32_t(regs.Get<reg::RB_SURFACE_INFO>().msaa_samples);
+      const auto color_info = regs.Get<reg::RB_COLOR_INFO>();
+      d.color_base = color_info.color_base | (color_info.color_base_bit_11 << 11);
+      d.color_format = uint32_t(color_info.color_format);
+      const auto depth_info = regs.Get<reg::RB_DEPTH_INFO>();
+      d.depth_base = depth_info.depth_base | (depth_info.depth_base_bit_11 << 11);
+      const auto br = regs.Get<reg::PA_SC_WINDOW_SCISSOR_BR>();
+      d.scissor_br_x = br.br_x;
+      d.scissor_br_y = br.br_y;
+      NotePassDetail(d);
     }
     // Census of the passes still EXECUTING under suppression (each distinct
     // surface pitch logged once): the data for tightening the filter - these

@@ -2,7 +2,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <mutex>
 #include <string>
+#include <unordered_set>
+
+#include <rex/logging.h>
 
 #include <rex/cvar.h>
 
@@ -33,8 +37,11 @@ REXCVAR_DEFINE_INT32(native_render_suppress_mode, 2, "GPU",
                      "portrait renders, census pitches 560-1200), but the 1152-wide "
                      "main scene + postfx band stays suppressed; that band is the "
                      "whole-pipeline cost at scaled resolutions and portraits never "
-                     "need it.")
-    .range(0, 3)
+                     "need it (that band is pitch 1200: 1152 rounded up to 80-pixel "
+                     "EDRAM tiles). 4 = scene-photo mode: like 3, but the 1152x640 "
+                     "band executes too, for one-shot renders into it that the game "
+                     "reads back.")
+    .range(0, 4)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DEFINE_INT32(native_render_suppress_extra_pitch, 0, "GPU",
@@ -65,8 +72,18 @@ REXCVAR_DEFINE_BOOL(native_render_pass_census, false, "GPU",
                     "for the app to take per context. Off costs one cvar read per draw.")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+REXCVAR_DEFINE_BOOL(native_render_pass_census_detail, false, "GPU",
+                    "Diagnostics (Vulkan): log each distinct render-target setup (pitch, "
+                    "MSAA, EDRAM bases, scissor, resolve destination) of the emulated "
+                    "draws and resolves that still execute under the native renderer, "
+                    "once each.")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 namespace rex::graphics {
 namespace {
+
+std::mutex g_detail_mu;
+std::unordered_set<uint64_t> g_detail_seen;
 
 constexpr uint32_t kCensusPitches = 8192;
 std::atomic<uint32_t> g_census_draws[kCensusPitches][kPassCensusKinds];
@@ -194,11 +211,18 @@ bool ShouldSuppressPassAtPitch(uint32_t surface_pitch) {
     case 1:
       return true;
     case 3:
-      // Portrait-window mode: the one-shot frontend portrait RTTs (Skate 3
-      // census during the window: 1200/800/640/600/560 + small mips)
-      // execute, while the 1152-wide main scene/postfx band, the
-      // whole-pipeline cost at scaled resolutions, stays suppressed like
-      // the framebuffer.
+      // Portrait-window mode: the one-shot frontend portrait RTTs (Skate 3:
+      // the 512x512 card at pitch 560, plus 800/640/600 + small mips)
+      // execute, while the main scene/postfx band, the whole-pipeline cost
+      // at scaled resolutions, stays suppressed like the framebuffer. That
+      // band's pitch is 1200, not 1152: EDRAM surfaces are allocated in
+      // 80-pixel tiles, so 1152 rounds up (until 2026-11 only 1152 was
+      // excluded, and the whole emulated scene ran in every window).
+      return surface_pitch >= 1152;
+    case 4:
+      // Scene-photo mode: like 3 but the 1152x640 band (pitch 1200)
+      // executes too, for one-shot renders INTO that surface whose resolve
+      // the game reads back (Skate 3's skater photo).
       return surface_pitch >= 1280 || surface_pitch == 1152;
     default:
       // Execute only the memory-composition passes the native renderer
@@ -212,6 +236,38 @@ bool ShouldSuppressPassAtPitch(uint32_t surface_pitch) {
 
 bool PassCensusEnabled() {
   return REXCVAR_GET(native_render_pass_census);
+}
+
+bool PassCensusDetailEnabled() {
+  return REXCVAR_GET(native_render_pass_census_detail);
+}
+
+void NotePassDetail(const PassDetail& d) {
+  const uint32_t f[] = {d.resolve,      d.pitch,        d.msaa,        d.color_base,
+                        d.color_format, d.depth_base,   d.scissor_br_x, d.scissor_br_y,
+                        d.dest_base,    d.dest_pitch,   d.dest_height};
+  uint64_t h = 1469598103934665603ull;
+  for (uint32_t v : f) {
+    h = (h ^ v) * 1099511628211ull;
+  }
+  {
+    std::lock_guard<std::mutex> lk(g_detail_mu);
+    if (g_detail_seen.size() >= 4096 || !g_detail_seen.insert(h).second) {
+      return;
+    }
+  }
+  if (d.resolve) {
+    REXLOG_INFO(
+        "pass detail: RESOLVE pitch={} msaa={} color_base={} fmt={} scissor={}x{} "
+        "dest=0x{:08X} {}x{}",
+        d.pitch, d.msaa, d.color_base, d.color_format, d.scissor_br_x, d.scissor_br_y,
+        d.dest_base, d.dest_pitch, d.dest_height);
+  } else {
+    REXLOG_INFO(
+        "pass detail: draw pitch={} msaa={} color_base={} fmt={} depth_base={} scissor={}x{}",
+        d.pitch, d.msaa, d.color_base, d.color_format, d.depth_base, d.scissor_br_x,
+        d.scissor_br_y);
+  }
 }
 
 void NotePassCensus(uint32_t surface_pitch, PassCensusKind kind, uint32_t index_count) {

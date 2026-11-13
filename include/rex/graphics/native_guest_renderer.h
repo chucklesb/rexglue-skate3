@@ -113,6 +113,25 @@ void NotePassCensus(uint32_t surface_pitch, PassCensusKind kind, uint32_t index_
 // resets everything. Returns the number of entries.
 size_t TakePassCensus(PassCensusEntry* out, size_t max_entries, uint32_t* native_frames,
                       uint32_t* emulated_frames);
+// With native_render_pass_census_detail on (Vulkan): logs each distinct
+// render-target setup of the draws and resolves that EXECUTE under the
+// native renderer, once, so passes sharing a pitch (Skate 3: the main scene
+// and the menus' skater portraits are both 1200) can be told apart.
+bool PassCensusDetailEnabled();
+struct PassDetail {
+  bool resolve = false;
+  uint32_t pitch = 0;
+  uint32_t msaa = 0;
+  uint32_t color_base = 0;
+  uint32_t color_format = 0;
+  uint32_t depth_base = 0;
+  uint32_t scissor_br_x = 0;
+  uint32_t scissor_br_y = 0;
+  uint32_t dest_base = 0;  // resolves only
+  uint32_t dest_pitch = 0;
+  uint32_t dest_height = 0;
+};
+void NotePassDetail(const PassDetail& d);
 
 // ---- Guest-output post-processor ------------------------------------------
 // Host effect over the EMULATED guest-output path (e.g. the settings-menu
