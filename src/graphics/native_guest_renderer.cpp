@@ -37,6 +37,16 @@ REXCVAR_DEFINE_INT32(native_render_suppress_mode, 2, "GPU",
     .range(0, 3)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+REXCVAR_DEFINE_INT32(native_render_suppress_extra_pitch, 0, "GPU",
+                     "While the native guest-output renderer is active, also suppress "
+                     "the emulated passes (draws and resolves) at exactly this surface "
+                     "pitch, on top of native_render_suppress_mode. 0 = none. For an "
+                     "app to drop a known-unused pass class in a context where it is "
+                     "the only one at that pitch (Skate 3: the replay's per-frame aux "
+                     "skater passes at 160).")
+    .range(0, 8192)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 REXCVAR_DEFINE_BOOL(native_render_suppress_exempt_depth_only, true, "GPU",
                     "Within the suppression-EXEMPT passes (see "
                     "native_render_suppress_mode), also skip draws with no pixel shader "
@@ -158,6 +168,10 @@ bool ShouldSuppressExemptDepthOnlyDraws() {
 }
 
 bool ShouldSuppressPassAtPitch(uint32_t surface_pitch) {
+  const int32_t extra = REXCVAR_GET(native_render_suppress_extra_pitch);
+  if (extra > 0 && surface_pitch == uint32_t(extra)) {
+    return true;
+  }
   switch (REXCVAR_GET(native_render_suppress_mode)) {
     case 0:
       return surface_pitch >= 1280;
