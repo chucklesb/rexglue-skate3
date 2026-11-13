@@ -59,8 +59,20 @@ REXCVAR_DEFINE_BOOL(native_render_suppress_exempt_depth_only, true, "GPU",
                     "no-PS lay-down would need this off).")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+REXCVAR_DEFINE_BOOL(native_render_pass_census, false, "GPU",
+                    "Diagnostics: count emulated draws by surface pitch (suppressed, "
+                    "executed under the native renderer, executed with it inactive) "
+                    "for the app to take per context. Off costs one cvar read per draw.")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 namespace rex::graphics {
 namespace {
+
+constexpr uint32_t kCensusPitches = 8192;
+std::atomic<uint32_t> g_census_draws[kCensusPitches][kPassCensusKinds];
+std::atomic<uint64_t> g_census_indices[kCensusPitches][kPassCensusKinds];
+std::atomic<uint32_t> g_census_native_frames{0};
+std::atomic<uint32_t> g_census_emulated_frames{0};
 
 std::atomic<NativeGuestOutputRenderer> g_renderer{nullptr};
 std::atomic<void*> g_renderer_user_data{nullptr};
@@ -87,6 +99,10 @@ bool TryRenderNativeGuestOutput(const NativeGuestOutputRenderContext& context) {
   void* user_data = g_renderer_user_data.load(std::memory_order_acquire);
   const bool rendered = renderer(context, user_data);
   g_native_output_active.store(rendered, std::memory_order_relaxed);
+  if (REXCVAR_GET(native_render_pass_census)) {
+    (rendered ? g_census_native_frames : g_census_emulated_frames)
+        .fetch_add(1, std::memory_order_relaxed);
+  }
   return rendered;
 }
 
@@ -192,6 +208,42 @@ bool ShouldSuppressPassAtPitch(uint32_t surface_pitch) {
       // guessing which small surfaces matter.
       return !(surface_pitch == 1024 || surface_pitch <= 512);
   }
+}
+
+bool PassCensusEnabled() {
+  return REXCVAR_GET(native_render_pass_census);
+}
+
+void NotePassCensus(uint32_t surface_pitch, PassCensusKind kind, uint32_t index_count) {
+  const uint32_t p = std::min(surface_pitch, kCensusPitches - 1);
+  const uint32_t k = uint32_t(kind);
+  g_census_draws[p][k].fetch_add(1, std::memory_order_relaxed);
+  g_census_indices[p][k].fetch_add(index_count, std::memory_order_relaxed);
+}
+
+size_t TakePassCensus(PassCensusEntry* out, size_t max_entries, uint32_t* native_frames,
+                      uint32_t* emulated_frames) {
+  size_t n = 0;
+  for (uint32_t p = 0; p < kCensusPitches; ++p) {
+    PassCensusEntry e;
+    bool any = false;
+    for (uint32_t k = 0; k < kPassCensusKinds; ++k) {
+      e.draws[k] = g_census_draws[p][k].exchange(0, std::memory_order_relaxed);
+      e.indices[k] = g_census_indices[p][k].exchange(0, std::memory_order_relaxed);
+      any |= e.draws[k] != 0;
+    }
+    if (any && n < max_entries) {
+      e.pitch = p;
+      out[n++] = e;
+    }
+  }
+  if (native_frames) {
+    *native_frames = g_census_native_frames.exchange(0, std::memory_order_relaxed);
+  }
+  if (emulated_frames) {
+    *emulated_frames = g_census_emulated_frames.exchange(0, std::memory_order_relaxed);
+  }
+  return n;
 }
 
 }  // namespace rex::graphics

@@ -2613,9 +2613,20 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   // suppressing it left pages that streamed in during native play
   // uncomposed (garbage), the light/dark checkerboard ground. CAS outfit
   // composition mid-gameplay is covered by the same rule.
-  if (!memexport_used && ShouldSuppressEmulatedDraws()) {
+  const bool pass_census = PassCensusEnabled();
+  const bool suppress_active = ShouldSuppressEmulatedDraws();
+  if (pass_census && (memexport_used || !suppress_active)) {
+    NotePassCensus(regs.Get<reg::RB_SURFACE_INFO>().surface_pitch,
+                   suppress_active ? PassCensusKind::kExecutedUnderNative
+                                   : PassCensusKind::kExecutedEmulated,
+                   index_count);
+  }
+  if (!memexport_used && suppress_active) {
     const uint32_t pitch = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch;
     if (ShouldSuppressPassAtPitch(pitch)) {
+      if (pass_census) {
+        NotePassCensus(pitch, PassCensusKind::kSuppressed, index_count);
+      }
       return true;
     }
     // Depth/stencil-only draws (no pixel shader) inside the EXEMPT passes:
@@ -2624,7 +2635,13 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
     // Mirrors the Vulkan gate, where this stream was the dominant remaining
     // emulated GPU cost (the bimodal-FPS slow state).
     if (pixel_shader == nullptr && ShouldSuppressExemptDepthOnlyDraws()) {
+      if (pass_census) {
+        NotePassCensus(pitch, PassCensusKind::kSuppressed, index_count);
+      }
       return true;
+    }
+    if (pass_census) {
+      NotePassCensus(pitch, PassCensusKind::kExecutedUnderNative, index_count);
     }
     // Census of the passes still EXECUTING under suppression (each distinct
     // surface pitch logged once): the data for tightening the filter; these

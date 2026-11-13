@@ -4243,9 +4243,20 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t 
   // uncomposed (garbage), the light/dark checkerboard ground. CAS outfit
   // composition mid-gameplay is covered by the same rule. (Mirrors the
   // D3D12 gate; agreement with the resolve gate above is an invariant.)
-  if (!memexport_writes_possible && ShouldSuppressEmulatedDraws()) {
+  const bool pass_census = PassCensusEnabled();
+  const bool suppress_active = ShouldSuppressEmulatedDraws();
+  if (pass_census && (memexport_writes_possible || !suppress_active)) {
+    NotePassCensus(regs.Get<reg::RB_SURFACE_INFO>().surface_pitch,
+                   suppress_active ? PassCensusKind::kExecutedUnderNative
+                                   : PassCensusKind::kExecutedEmulated,
+                   index_count);
+  }
+  if (!memexport_writes_possible && suppress_active) {
     const uint32_t suppress_pitch = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch;
     if (ShouldSuppressPassAtPitch(suppress_pitch)) {
+      if (pass_census) {
+        NotePassCensus(suppress_pitch, PassCensusKind::kSuppressed, index_count);
+      }
       return true;
     }
     // Depth/stencil-only draws (no pixel shader) inside the EXEMPT passes:
@@ -4254,7 +4265,13 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t 
     // This stream is the dominant remaining emulated GPU cost at 3x on
     // Vulkan (2-12 ms/frame - the bimodal-FPS slow state).
     if (pixel_shader == nullptr && ShouldSuppressExemptDepthOnlyDraws()) {
+      if (pass_census) {
+        NotePassCensus(suppress_pitch, PassCensusKind::kSuppressed, index_count);
+      }
       return true;
+    }
+    if (pass_census) {
+      NotePassCensus(suppress_pitch, PassCensusKind::kExecutedUnderNative, index_count);
     }
     // Census of the passes still EXECUTING under suppression (each distinct
     // surface pitch logged once): the data for tightening the filter - these

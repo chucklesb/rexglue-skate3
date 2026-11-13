@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include <rex/graphics/native_rhi.h>
@@ -86,6 +87,32 @@ bool ShouldSuppressPassAtPitch(uint32_t surface_pitch);
 // Driven by native_render_suppress_exempt_depth_only; their output feeds
 // only suppressed scene passes (the native renderer shadows itself).
 bool ShouldSuppressExemptDepthOnlyDraws();
+
+// ---- Emulated pass census (diagnostics) -----------------------------------
+// With native_render_pass_census on, the command processors count every
+// emulated draw by its surface pitch: suppressed, executed while the native
+// renderer is active (the passes that survive suppression), or executed with
+// the native renderer inactive (menus, loading, any context it yields in).
+// An app takes and resets the counts at its own boundaries (e.g. per screen)
+// to see which contexts still run the emulated renderer and how much.
+enum class PassCensusKind : uint32_t {
+  kSuppressed = 0,
+  kExecutedUnderNative = 1,
+  kExecutedEmulated = 2,
+};
+constexpr uint32_t kPassCensusKinds = 3;
+struct PassCensusEntry {
+  uint32_t pitch = 0;
+  uint32_t draws[kPassCensusKinds] = {};
+  uint64_t indices[kPassCensusKinds] = {};
+};
+bool PassCensusEnabled();
+void NotePassCensus(uint32_t surface_pitch, PassCensusKind kind, uint32_t index_count);
+// Copies the non-zero entries (ascending pitch) into `out`, the presented
+// frame counts (native renderer active / not) into the other outputs, and
+// resets everything. Returns the number of entries.
+size_t TakePassCensus(PassCensusEntry* out, size_t max_entries, uint32_t* native_frames,
+                      uint32_t* emulated_frames);
 
 // ---- Guest-output post-processor ------------------------------------------
 // Host effect over the EMULATED guest-output path (e.g. the settings-menu
