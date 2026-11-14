@@ -130,6 +130,12 @@ struct PassDetail {
   uint32_t dest_base = 0;  // resolves only
   uint32_t dest_pitch = 0;
   uint32_t dest_height = 0;
+  // Draws: up to 4 textures the pixel shader samples (fetch constant base
+  // address, width x height, format), 0 = none.
+  uint32_t tex_base[4] = {};
+  uint32_t tex_w[4] = {};
+  uint32_t tex_h[4] = {};
+  uint32_t tex_fmt[4] = {};
 };
 void NotePassDetail(const PassDetail& d);
 

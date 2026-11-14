@@ -54,6 +54,17 @@ REXCVAR_DEFINE_INT32(native_render_suppress_extra_pitch, 0, "GPU",
     .range(0, 8192)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+REXCVAR_DEFINE_INT32(native_render_suppress_exempt_pitch, 0, "GPU",
+                     "While the native guest-output renderer is active, let the emulated "
+                     "passes (draws and resolves) at exactly this surface pitch EXECUTE "
+                     "whatever native_render_suppress_mode says. 0 = none. For an app to "
+                     "let a one-shot pass through briefly (Skate 3: the team photo atlas, "
+                     "1536x512 at pitch 1600, rebuilt in the skater-photo window). "
+                     "Depth-only draws there still follow "
+                     "native_render_suppress_exempt_depth_only.")
+    .range(0, 8192)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 REXCVAR_DEFINE_BOOL(native_render_suppress_exempt_depth_only, true, "GPU",
                     "Within the suppression-EXEMPT passes (see "
                     "native_render_suppress_mode), also skip draws with no pixel shader "
@@ -205,6 +216,10 @@ bool ShouldSuppressPassAtPitch(uint32_t surface_pitch) {
   if (extra > 0 && surface_pitch == uint32_t(extra)) {
     return true;
   }
+  const int32_t exempt = REXCVAR_GET(native_render_suppress_exempt_pitch);
+  if (exempt > 0 && surface_pitch == uint32_t(exempt)) {
+    return false;
+  }
   switch (REXCVAR_GET(native_render_suppress_mode)) {
     case 0:
       return surface_pitch >= 1280;
@@ -250,6 +265,9 @@ void NotePassDetail(const PassDetail& d) {
   for (uint32_t v : f) {
     h = (h ^ v) * 1099511628211ull;
   }
+  for (int i = 0; i < 4; ++i) {
+    h = (h ^ d.tex_base[i]) * 1099511628211ull;
+  }
   {
     std::lock_guard<std::mutex> lk(g_detail_mu);
     if (g_detail_seen.size() >= 4096 || !g_detail_seen.insert(h).second) {
@@ -263,10 +281,17 @@ void NotePassDetail(const PassDetail& d) {
         d.pitch, d.msaa, d.color_base, d.color_format, d.scissor_br_x, d.scissor_br_y,
         d.dest_base, d.dest_pitch, d.dest_height);
   } else {
+    std::string tex;
+    for (int i = 0; i < 4; ++i) {
+      if (d.tex_base[i] != 0) {
+        tex += fmt::format(" tex=0x{:08X}/{}x{}/f{}", d.tex_base[i], d.tex_w[i], d.tex_h[i],
+                           d.tex_fmt[i]);
+      }
+    }
     REXLOG_INFO(
-        "pass detail: draw pitch={} msaa={} color_base={} fmt={} depth_base={} scissor={}x{}",
+        "pass detail: draw pitch={} msaa={} color_base={} fmt={} depth_base={} scissor={}x{}{}",
         d.pitch, d.msaa, d.color_base, d.color_format, d.depth_base, d.scissor_br_x,
-        d.scissor_br_y);
+        d.scissor_br_y, tex);
   }
 }
 

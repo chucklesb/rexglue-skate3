@@ -4303,6 +4303,18 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t 
       const auto br = regs.Get<reg::PA_SC_WINDOW_SCISSOR_BR>();
       d.scissor_br_x = br.br_x;
       d.scissor_br_y = br.br_y;
+      if (pixel_shader != nullptr) {
+        int n = 0;
+        for (const auto& b : pixel_shader->texture_bindings()) {
+          if (n >= 4) break;
+          const xenos::xe_gpu_texture_fetch_t tf = regs.GetTextureFetch(b.fetch_constant);
+          d.tex_base[n] = tf.base_address << 12;
+          d.tex_w[n] = tf.size_2d.width + 1;
+          d.tex_h[n] = tf.size_2d.height + 1;
+          d.tex_fmt[n] = uint32_t(tf.format);
+          ++n;
+        }
+      }
       NotePassDetail(d);
     }
     // Census of the passes still EXECUTING under suppression (each distinct
