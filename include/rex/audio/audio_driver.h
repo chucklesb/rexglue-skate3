@@ -25,6 +25,12 @@ namespace rex::audio {
 int32_t AutoDeviceSampleFrames();
 void SetAutoDeviceSampleFrames(int32_t sample_frames);
 
+// Output muted while the app window is hidden (headless runs): the UI sets it
+// with the window's hidden state; drivers output silence while it is set, on
+// top of the audio_mute cvar (which it does not change).
+bool MutedWhileHidden();
+void SetMutedWhileHidden(bool muted);
+
 class AudioDriver {
  public:
   explicit AudioDriver(memory::Memory* memory);

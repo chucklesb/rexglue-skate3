@@ -300,7 +300,7 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
       }
       additional_amount -= len;
     } else {
-      if (REXCVAR_GET(audio_mute)) {
+      if (REXCVAR_GET(audio_mute) || MutedWhileHidden()) {
         std::memset(data, 0, len);
       } else {
         switch (driver->sdl_device_channels_) {

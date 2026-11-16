@@ -17,6 +17,7 @@ namespace rex::audio {
 
 namespace {
 std::atomic<int32_t> g_auto_device_sample_frames{0};
+std::atomic<bool> g_muted_while_hidden{false};
 }  // namespace
 
 int32_t AutoDeviceSampleFrames() {
@@ -25,6 +26,14 @@ int32_t AutoDeviceSampleFrames() {
 
 void SetAutoDeviceSampleFrames(int32_t sample_frames) {
   g_auto_device_sample_frames.store(sample_frames, std::memory_order_relaxed);
+}
+
+bool MutedWhileHidden() {
+  return g_muted_while_hidden.load(std::memory_order_relaxed);
+}
+
+void SetMutedWhileHidden(bool muted) {
+  g_muted_while_hidden.store(muted, std::memory_order_relaxed);
 }
 
 AudioDriver::AudioDriver(memory::Memory* memory) : memory_(memory) {}

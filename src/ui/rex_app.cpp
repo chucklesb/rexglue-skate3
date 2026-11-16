@@ -36,6 +36,7 @@
 #if REX_HAS_D3D12
 #include <rex/graphics/d3d12/graphics_system.h>
 #endif
+#include <rex/audio/audio_driver.h>
 #include <rex/audio/audio_system.h>
 #include <rex/audio/sdl/sdl_audio_system.h>
 #include <rex/input/input_system.h>
@@ -738,10 +739,15 @@ bool ReXApp::SetupPresentation() {
   });
   // window_hidden: open without showing; a runtime change shows or hides it
   // (on the UI thread: the cvar may be set from any thread, e.g. the harness).
+  // Audio follows: muted while hidden, back on when shown.
   window_->SetHidden(REXCVAR_GET(window_hidden));
+  rex::audio::SetMutedWhileHidden(REXCVAR_GET(window_hidden));
   rex::cvar::RegisterChangeCallback("window_hidden", [this](std::string_view,
                                                             std::string_view value) {
     const bool hidden = rex::string::from_string<bool>(value, false);
+    rex::audio::SetMutedWhileHidden(hidden);
+    REXLOG_INFO("window {} (audio {})", hidden ? "hidden" : "shown",
+                hidden ? "muted" : "on");
     app_context().CallInUIThread([this, hidden] {
       if (window_) {
         window_->SetHidden(hidden);
