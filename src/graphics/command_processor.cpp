@@ -13,6 +13,9 @@
 #include <cinttypes>
 #include <cmath>
 #include <cstring>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <string_view>
 
 #include <fmt/format.h>
@@ -23,6 +26,7 @@
 #include <rex/chrono/clock.h>
 #include <rex/graphics/command_processor.h>
 #include <rex/graphics/flags.h>
+#include <rex/graphics/gpu_writeback.h>
 #include <rex/graphics/graphics_system.h>
 #include <rex/graphics/pipeline/texture/info.h>
 #include <rex/graphics/sampler_info.h>
@@ -130,6 +134,35 @@ REXCVAR_DEFINE_BOOL(gpu_cpu_profile, false, "GPU",
 #endif
 
 namespace rex::graphics {
+
+namespace {
+std::atomic<uint32_t> g_writeback_seq{0};
+std::atomic<int> g_writeback_waiters{0};
+std::mutex g_writeback_mu;
+std::condition_variable g_writeback_cv;
+}  // namespace
+
+void NotifyGpuWriteback() {
+  g_writeback_seq.fetch_add(1, std::memory_order_seq_cst);
+  if (g_writeback_waiters.load(std::memory_order_seq_cst) > 0) {
+    std::lock_guard lk(g_writeback_mu);
+    g_writeback_cv.notify_all();
+  }
+}
+
+uint32_t GpuWritebackSeq() {
+  return g_writeback_seq.load(std::memory_order_seq_cst);
+}
+
+bool WaitGpuWriteback(uint32_t seen, std::chrono::microseconds timeout) {
+  std::unique_lock lk(g_writeback_mu);
+  g_writeback_waiters.fetch_add(1, std::memory_order_seq_cst);
+  const bool changed = g_writeback_cv.wait_for(lk, timeout, [&] {
+    return g_writeback_seq.load(std::memory_order_seq_cst) != seen;
+  });
+  g_writeback_waiters.fetch_sub(1, std::memory_order_seq_cst);
+  return changed;
+}
 
 using namespace rex::graphics::xenos;
 
@@ -298,6 +331,7 @@ void CommandProcessor::WorkerThreadMain() {
     if (read_ptr_writeback_ptr_) {
       memory::store_and_swap<uint32_t>(memory_->TranslatePhysical(read_ptr_writeback_ptr_),
                                        read_ptr_index_);
+      NotifyGpuWriteback();
     }
 
     // FIXME: We're supposed to process the WAIT_UNTIL register at this point,
@@ -419,6 +453,7 @@ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
       uint32_t scratch_addr = regs.values[XE_GPU_REG_SCRATCH_ADDR];
       uint32_t mem_addr = scratch_addr + (scratch_reg * 4);
       memory::store_and_swap<uint32_t>(memory_->TranslatePhysical(mem_addr), value);
+      NotifyGpuWriteback();
     }
   } else {
     switch (index) {
@@ -1243,6 +1278,7 @@ bool CommandProcessor::ExecutePacketType3_REG_TO_MEM(memory::RingBuffer* reader,
   mem_addr &= ~0x3;
   reg_val = GpuSwap(reg_val, endianness);
   memory::store(memory_->TranslatePhysical(mem_addr), reg_val);
+  NotifyGpuWriteback();
 
   return true;
 }
@@ -1259,6 +1295,7 @@ bool CommandProcessor::ExecutePacketType3_MEM_WRITE(memory::RingBuffer* reader, 
     memory::store(memory_->TranslatePhysical(addr), write_data);
     write_addr += 4;
   }
+  NotifyGpuWriteback();
 
   return true;
 }
@@ -1318,6 +1355,7 @@ bool CommandProcessor::ExecutePacketType3_COND_WRITE(memory::RingBuffer* reader,
       write_reg_addr &= ~0x3;
       write_data = GpuSwap(write_data, endianness);
       memory::store(memory_->TranslatePhysical(write_reg_addr), write_data);
+      NotifyGpuWriteback();
     } else {
       // Register.
       WriteRegister(write_reg_addr, write_data);
@@ -1363,6 +1401,7 @@ bool CommandProcessor::ExecutePacketType3_EVENT_WRITE_SHD(memory::RingBuffer* re
   address &= ~0x3;
   data_value = GpuSwap(data_value, endianness);
   memory::store(memory_->TranslatePhysical(address), data_value);
+  NotifyGpuWriteback();
   return true;
 }
 
@@ -1391,6 +1430,7 @@ bool CommandProcessor::ExecutePacketType3_EVENT_WRITE_EXT(memory::RingBuffer* re
   assert_true(endianness == xenos::Endian::k8in16);
   memory::copy_and_swap_16_unaligned(memory_->TranslatePhysical(address), extents,
                                      rex::countof(extents));
+  NotifyGpuWriteback();
   return true;
 }
 
@@ -1426,6 +1466,7 @@ bool CommandProcessor::ExecutePacketType3_EVENT_WRITE_ZPD(memory::RingBuffer* re
       pSampleCounts->Total_A = fake_sample_count;
     }
   }
+  NotifyGpuWriteback();
 
   return true;
 }
