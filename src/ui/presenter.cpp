@@ -696,6 +696,15 @@ bool Presenter::RefreshGuestOutput(
     guest_output_mailbox_writable_ = (3 - last_acquired - guest_output_mailbox_writable_) % 3;
   }
 
+  // The frame tap (SetGuestOutputRefreshedCallback): the new image is ready
+  // and not painted yet. Only for a true image (not a blanking refresh).
+  if (is_active && guest_output_refreshed_callback_set_.load(std::memory_order_acquire)) {
+    std::lock_guard<std::mutex> lock(guest_output_refreshed_callback_mutex_);
+    if (guest_output_refreshed_callback_) {
+      guest_output_refreshed_callback_();
+    }
+  }
+
   // Trigger the presentation on the host.
   PaintResult paint_result = PaintResult::kNotPresented;
   {

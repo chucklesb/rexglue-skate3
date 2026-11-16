@@ -424,6 +424,18 @@ class Presenter {
   // multiple at the same time, and it should acquire the latest guest output
   // image via ConsumeGuestOutput.
   virtual bool CaptureGuestOutput(RawImage& image_out) = 0;
+  // Frame tap: called on the guest output producer thread right after each
+  // refreshed guest frame becomes the ready one, before it is painted, so a
+  // CaptureGuestOutput from inside the callback reads exactly that frame
+  // (frame dumps; every frame, not the latest one at poll time). Blocking in
+  // the callback holds the producer (the guest throttles behind it). An empty
+  // function removes it. Thread-safe.
+  void SetGuestOutputRefreshedCallback(std::function<void()> callback) {
+    std::lock_guard<std::mutex> lock(guest_output_refreshed_callback_mutex_);
+    guest_output_refreshed_callback_ = std::move(callback);
+    guest_output_refreshed_callback_set_.store(bool(guest_output_refreshed_callback_),
+                                               std::memory_order_release);
+  }
   const GuestOutputPaintConfig& GetGuestOutputPaintConfigFromUIThread() const {
     return guest_output_paint_config_;
   }
@@ -1076,6 +1088,9 @@ class Presenter {
   // high frame rates.
   static constexpr size_t kGuestFrameTimestampCount = 512;
   std::atomic<bool> guest_frame_stats_enabled_{false};
+  std::mutex guest_output_refreshed_callback_mutex_;
+  std::function<void()> guest_output_refreshed_callback_;
+  std::atomic<bool> guest_output_refreshed_callback_set_{false};
   // Packed x/y/width/height as 4x16-bit, written by GetGuestOutputPaintFlow
   // (paint thread, const method - hence mutable), read from the UI thread via
   // GetLastGuestOutputPaintRect.
