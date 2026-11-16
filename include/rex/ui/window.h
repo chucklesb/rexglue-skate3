@@ -288,6 +288,11 @@ class Window {
   bool IsFullscreen() const { return fullscreen_; }
   void SetFullscreen(bool new_fullscreen);
 
+  // Hidden: the window is not shown, but it stays open and the app keeps
+  // rendering (presentation goes nowhere visible). For automated tests.
+  bool IsHidden() const { return hidden_; }
+  void SetHidden(bool new_hidden);
+
   // Desired state stored by the common Window, externally modifiable, read-only
   // in the implementation.
   const std::string& GetTitle() const { return title_; }
@@ -536,6 +541,7 @@ class Window {
   // ApplyNew* means that the value has actually been changed to something
   // different than it was previously.
   virtual void ApplyNewFullscreen() {}
+  virtual void ApplyNewHidden() {}
   virtual void ApplyNewTitle() {}
   // can_apply_state_in_current_phase whether the window is in a life cycle
   // phase that would normally accept Apply calls (the native window surely
@@ -734,6 +740,7 @@ class Window {
   uint32_t actual_physical_height_ = 0;
 
   bool fullscreen_ = false;
+  bool hidden_ = false;
 
   std::string title_;
 

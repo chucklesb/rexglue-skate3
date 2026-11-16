@@ -183,7 +183,9 @@ bool WindowSDL::OpenImpl() {
   // desired state so a reopened window comes back with the state it had.
   ApplyTextInputActiveNow();
   ApplyCursorVisibilityNow();
-  SDL_ShowWindow(sdl_window_);
+  if (!IsHidden()) {
+    SDL_ShowWindow(sdl_window_);
+  }
 
   // Actualize state for the common Window code. Listener dispatch is handled
   // by Window::Open after OpenImpl returns; these only record initial state.
@@ -308,6 +310,18 @@ void WindowSDL::ApplyNewFullscreen() {
     return;
   }
   SDL_SetWindowFullscreen(sdl_window_, IsFullscreen());
+}
+
+void WindowSDL::ApplyNewHidden() {
+  if (!sdl_window_) {
+    return;
+  }
+  if (IsHidden()) {
+    SDL_HideWindow(sdl_window_);
+  } else {
+    SDL_ShowWindow(sdl_window_);
+    SDL_RaiseWindow(sdl_window_);
+  }
 }
 
 void WindowSDL::ApplyNewTitle() {

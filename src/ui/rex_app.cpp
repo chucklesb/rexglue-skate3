@@ -736,6 +736,18 @@ bool ReXApp::SetupPresentation() {
       window_->SetFullscreen(rex::string::from_string<bool>(value, false));
     }
   });
+  // window_hidden: open without showing; a runtime change shows or hides it
+  // (on the UI thread: the cvar may be set from any thread, e.g. the harness).
+  window_->SetHidden(REXCVAR_GET(window_hidden));
+  rex::cvar::RegisterChangeCallback("window_hidden", [this](std::string_view,
+                                                            std::string_view value) {
+    const bool hidden = rex::string::from_string<bool>(value, false);
+    app_context().CallInUIThread([this, hidden] {
+      if (window_) {
+        window_->SetHidden(hidden);
+      }
+    });
+  });
   window_->Open();
 
   auto* graphics_system = config_.graphics.get();

@@ -51,6 +51,7 @@ class WindowSDL final : public Window {
   void RequestCloseImpl() override;
 
   void ApplyNewFullscreen() override;
+  void ApplyNewHidden() override;
   void ApplyNewTitle() override;
   void ApplyNewMouseCapture() override;
   void ApplyNewMouseRelease() override;

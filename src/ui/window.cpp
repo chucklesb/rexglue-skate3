@@ -38,6 +38,11 @@ REXCVAR_DEFINE_INT32(window_height, 0, "UI/Window",
 // in sync whenever this cvar is changed at runtime.
 REXCVAR_DEFINE_BOOL(fullscreen, true, "UI/Window", "Start the window in fullscreen mode");
 
+// kHotReload: ReXApp shows or hides the window when this changes at runtime.
+REXCVAR_DEFINE_BOOL(window_hidden, false, "UI/Window",
+                    "Keep the window hidden; the app still renders off-screen (automated "
+                    "tests). Set it false at runtime to show the window");
+
 REXCVAR_DEFINE_INT32(monitor, 0, "UI/Window",
                      "Monitor index to display on (0 = default, 1 = primary, 2 = "
                      "second monitor, etc.)")
@@ -317,6 +322,17 @@ void Window::SetFullscreen(bool new_fullscreen) {
   if (destruction_receiver.IsWindowDestroyedOrStateInapplicable()) {
     return;
   }
+}
+
+void Window::SetHidden(bool new_hidden) {
+  if (hidden_ == new_hidden) {
+    return;
+  }
+  hidden_ = new_hidden;
+  if (!CanApplyState()) {
+    return;
+  }
+  ApplyNewHidden();
 }
 
 void Window::SetTitle(const std::string_view new_title) {

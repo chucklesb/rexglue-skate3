@@ -12,6 +12,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include <rex/input/device_assignment.h>
@@ -73,6 +74,11 @@ class InputSystem : public system::IInputSystem {
 
   // Ordered by ordinal. Ordinals are never recycled, so unplugging pad one
   // does not renumber pad two.
+  // Guards devices_, device_owners_, active_devices_ and the assignment for
+  // the guest-facing calls: the game polls the pad from more than one guest
+  // thread (Skate 3: the main thread and its timer_thread), and two
+  // RefreshDevices at once corrupted devices_ (a crash in ~DeviceInfo).
+  mutable std::recursive_mutex devices_mutex_;
   std::vector<DeviceInfo> devices_;
   std::vector<InputDriver*> device_owners_;
 };
